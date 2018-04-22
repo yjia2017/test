@@ -101,3 +101,70 @@ decoder_outputs, decoder_final_state, _ = tf.contrib.seq2seq.dynamic_decode(
 
 decoder_outputs = decoder_outputs.rnn_output
 ```
+
+具体调用三个传给CustomHelper的三个函数可参考https://github.com/tensorflow/tensorflow/blob/r1.7/tensorflow/contrib/seq2seq/python/ops/basic_decoder.py
+
+``` python
+class BasicDecoder(decoder.Decoder):
+  """Basic sampling decoder."""
+
+  def __init__(self, cell, helper, initial_state, output_layer=None):
+    """Initialize BasicDecoder.
+    Args:
+      cell: An `RNNCell` instance.
+      helper: A `Helper` instance.
+      initial_state: A (possibly nested tuple of...) tensors and TensorArrays.
+        The initial state of the RNNCell.
+      output_layer: (Optional) An instance of `tf.layers.Layer`, i.e.,
+        `tf.layers.Dense`. Optional layer to apply to the RNN output prior
+        to storing the result or sampling.
+    Raises:
+      TypeError: if `cell`, `helper` or `output_layer` have an incorrect type.
+    """
+    if not rnn_cell_impl._like_rnncell(cell):  # pylint: disable=protected-access
+      raise TypeError("cell must be an RNNCell, received: %s" % type(cell))
+    if not isinstance(helper, helper_py.Helper):
+      raise TypeError("helper must be a Helper, received: %s" % type(helper))
+    if (output_layer is not None
+        and not isinstance(output_layer, layers_base.Layer)):
+      raise TypeError(
+          "output_layer must be a Layer, received: %s" % type(output_layer))
+    self._cell = cell
+    self._helper = helper
+    self._initial_state = initial_state
+    self._output_layer = output_layer
+```
+``` python
+def initialize(self, name=None):
+    """Initialize the decoder.
+    Args:
+      name: Name scope for any created operations.
+    Returns:
+      `(finished, first_inputs, initial_state)`.
+    """
+    return self._helper.initialize() + (self._initial_state,)
+
+  def step(self, time, inputs, state, name=None):
+    """Perform a decoding step.
+    Args:
+      time: scalar `int32` tensor.
+      inputs: A (structure of) input tensors.
+      state: A (structure of) state tensors and TensorArrays.
+      name: Name scope for any created operations.
+    Returns:
+      `(outputs, next_state, next_inputs, finished)`.
+    """
+    with ops.name_scope(name, "BasicDecoderStep", (time, inputs, state)):
+      cell_outputs, cell_state = self._cell(inputs, state)
+      if self._output_layer is not None:
+        cell_outputs = self._output_layer(cell_outputs)
+      sample_ids = self._helper.sample(
+          time=time, outputs=cell_outputs, state=cell_state)
+      (finished, next_inputs, next_state) = self._helper.next_inputs(
+          time=time,
+          outputs=cell_outputs,
+          state=cell_state,
+          sample_ids=sample_ids)
+    outputs = BasicDecoderOutput(cell_outputs, sample_ids)
+    return (outputs, next_state, next_inputs, finished)
+```
